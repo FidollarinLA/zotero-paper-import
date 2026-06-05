@@ -1,6 +1,6 @@
 # zotero-paper-import
 
-[English](README.md) | [????](README.zh-CN.md)
+[English](README.md) | [简体中文](README.zh-CN.md)
 
 A [Cursor Agent Skill](https://cursor.com/docs/agent/skills) that finds academic papers, downloads PDFs, and imports them into your local Zotero library with a named collection.
 
