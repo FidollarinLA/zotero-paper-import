@@ -21,13 +21,13 @@ A [Cursor Agent Skill](https://cursor.com/docs/agent/skills) that finds academic
 <details>
 <summary>Step-by-step breakdown</summary>
 
-1. **Identify paper** ó User provides DOI, URL, or title. If ambiguous, the agent asks for clarification.
-2. **Resolve metadata** ó `resolve_paper.py` fetches data from CrossRef / Semantic Scholar.
-3. **Download PDF** ó Published version first, then open access, then preprint (with user confirmation).
-4. **Paywall** ó Ask the user: use your own account to download, or download yourself and provide the PDF path.
-5. **Prepare import** ó Ask the user to **quit Zotero** (the agent writes to the local database; Zotero locks the file while running). Auto-backup `zotero.sqlite`.
-6. **Import to Zotero** ó `import_to_zotero.py` creates or reuses a collection and attaches the PDF.
-7. **Done** ó Ask the user to reopen Zotero. Report paths, DOI, and PDF version.
+1. **Identify paper** ù User provides DOI, URL, or title. If ambiguous, the agent asks for clarification.
+2. **Resolve metadata** ù `resolve_paper.py` fetches data from CrossRef / Semantic Scholar.
+3. **Download PDF** ù Published version first, then open access, then preprint (with user confirmation).
+4. **Paywall** ù Ask the user: use your own account to download, or download yourself and provide the PDF path.
+5. **Prepare import** ù Ask the user to **quit Zotero** (the agent writes to the local database; Zotero locks the file while running). Auto-backup `zotero.sqlite`.
+6. **Import to Zotero** ù `import_to_zotero.py` creates or reuses a collection and attaches the PDF.
+7. **Done** ù Ask the user to reopen Zotero. Report paths, DOI, and PDF version.
 
 </details>
 
@@ -36,14 +36,14 @@ A [Cursor Agent Skill](https://cursor.com/docs/agent/skills) that finds academic
 ### Personal skill (all projects)
 
 ```bash
-git clone https://github.com/skyjk/zotero-paper-import.git ~/.cursor/skills/zotero-paper-import
+git clone https://github.com/FidollarinLA/zotero-paper-import.git ~/.cursor/skills/zotero-paper-import
 ```
 
 ### Project skill (single repo)
 
 ```bash
 mkdir -p .cursor/skills
-git clone https://github.com/skyjk/zotero-paper-import.git .cursor/skills/zotero-paper-import
+git clone https://github.com/FidollarinLA/zotero-paper-import.git .cursor/skills/zotero-paper-import
 ```
 
 ### Optional configuration
@@ -114,7 +114,7 @@ zotero-paper-import/
 
 ## License
 
-MIT ó see [LICENSE](LICENSE).
+MIT ù see [LICENSE](LICENSE).
 
 ## Contributing
 
