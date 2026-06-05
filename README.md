@@ -21,13 +21,13 @@ A [Cursor Agent Skill](https://cursor.com/docs/agent/skills) that finds academic
 <details>
 <summary>Step-by-step breakdown</summary>
 
-1. **Identify paper** ù User provides DOI, URL, or title. If ambiguous, the agent asks for clarification.
-2. **Resolve metadata** ù `resolve_paper.py` fetches data from CrossRef / Semantic Scholar.
-3. **Download PDF** ù Published version first, then open access, then preprint (with user confirmation).
-4. **Paywall** ù Ask the user: use your own account to download, or download yourself and provide the PDF path.
-5. **Prepare import** ù Ask the user to **quit Zotero** (the agent writes to the local database; Zotero locks the file while running). Auto-backup `zotero.sqlite`.
-6. **Import to Zotero** ù `import_to_zotero.py` creates or reuses a collection and attaches the PDF.
-7. **Done** ù Ask the user to reopen Zotero. Report paths, DOI, and PDF version.
+1. **Identify paper** - User provides DOI, URL, or title. If ambiguous, the agent asks for clarification.
+2. **Resolve metadata** - `resolve_paper.py` fetches data from CrossRef / Semantic Scholar.
+3. **Download PDF** - Published version first, then open access, then preprint (with user confirmation).
+4. **Paywall** - Ask the user: use your own account to download, or download yourself and provide the PDF path.
+5. **Prepare import** - Ask the user to **quit Zotero** (the agent writes to the local database; Zotero locks the file while running). Auto-backup `zotero.sqlite`.
+6. **Import to Zotero** - `import_to_zotero.py` creates or reuses a collection and attaches the PDF.
+7. **Done** - Ask the user to reopen Zotero. Report paths, DOI, and PDF version.
 
 </details>
 
@@ -81,22 +81,22 @@ python3 scripts/import_to_zotero.py --doi 10.1038/s41586-026-10644-y --pdf ./pap
 
 ## File structure
 
-```
+```text
 zotero-paper-import/
-??? SKILL.md                 # Agent instructions
-??? README.md                # English documentation
-??? README.zh-CN.md          # Chinese documentation
-??? config.example.md        # User config template
-??? examples.md              # Conversation examples
-??? reference.md               # PDF sources, Zotero fields
-??? LICENSE
-??? assets/
-?   ??? workflow-en-infographic-v2.png
-?   ??? workflow-zh-infographic-v2.png
-??? scripts/
-    ??? resolve_paper.py
-    ??? download_pdf.py
-    ??? import_to_zotero.py
+|-- SKILL.md                 # Agent instructions
+|-- README.md                # English documentation
+|-- README.zh-CN.md          # Chinese documentation
+|-- config.example.md        # User config template
+|-- examples.md              # Conversation examples
+|-- reference.md             # PDF sources, Zotero fields
+|-- LICENSE
+|-- assets/
+|   |-- workflow-en-infographic-v2.png
+|   |-- workflow-zh-infographic-v2.png
+|-- scripts/
+    |-- resolve_paper.py
+    |-- download_pdf.py
+    |-- import_to_zotero.py
 ```
 
 ## Scope
@@ -114,7 +114,7 @@ zotero-paper-import/
 
 ## License
 
-MIT ù see [LICENSE](LICENSE).
+MIT - see [LICENSE](LICENSE).
 
 ## Contributing
 
