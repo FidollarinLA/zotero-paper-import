@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Resolve a paper identifier to structured metadata via CrossRef or Semantic Scholar."""
+"""Resolve a paper identifier to structured metadata via Crossref, arXiv or Semantic Scholar."""
 
 from __future__ import annotations
 
@@ -8,12 +8,14 @@ import json
 import re
 import subprocess
 import sys
+import xml.etree.ElementTree as ET
+from urllib.parse import unquote
 from urllib.parse import quote
 
 
 def curl_json(url: str) -> dict:
     result = subprocess.run(
-        ["curl", "-fsSL", url],
+        ["curl", "-fsSL", "--connect-timeout", "10", "--max-time", "45", url],
         capture_output=True,
         text=True,
         check=False,
@@ -61,12 +63,74 @@ def _strip_jats(text: str) -> str:
     return re.sub(r"<[^>]+>", "", text).strip()
 
 
+def arxiv_id(value: str) -> str | None:
+    value = unquote(value.strip())
+    value = re.sub(r"^(?:https?://(?:export\.)?arxiv\.org/(?:abs|pdf)/|https?://doi\.org/10\.48550/arxiv\.|10\.48550/arxiv\.|arxiv:)", "", value, flags=re.I)
+    value = value.removesuffix(".pdf")
+    return value if re.fullmatch(r"(?:\d{4}\.\d{4,5}|[a-zA-Z.-]+/\d{7})(?:v\d+)?", value) else None
+
+
+def parse_arxiv_feed(xml: str, requested_id: str) -> dict:
+    ns = {"a": "http://www.w3.org/2005/Atom", "x": "http://arxiv.org/schemas/atom"}
+    root = ET.fromstring(xml)
+    entry = root.find("a:entry", ns)
+    if entry is None:
+        raise ValueError("arXiv returned no matching paper")
+    resolved = arxiv_id(entry.findtext("a:id", "", ns))
+    if not resolved or re.sub(r"v\d+$", "", resolved) != re.sub(r"v\d+$", "", requested_id):
+        raise ValueError("arXiv returned an unexpected identifier")
+    if re.search(r"v\d+$", requested_id) and resolved != requested_id:
+        raise ValueError("arXiv returned an unexpected version")
+    published = entry.findtext("a:published", "", ns)[:10]
+    authors = []
+    for node in entry.findall("a:author/a:name", ns):
+        parts = (node.text or "").split()
+        authors.append({"given": " ".join(parts[:-1]), "family": parts[-1] if parts else ""})
+    base = re.sub(r"v\d+$", "", resolved)
+    return {
+        "doi": "10.48550/arXiv." + base,
+        "arxiv_id": resolved,
+        "title": " ".join(entry.findtext("a:title", "", ns).split()),
+        "authors": authors, "date": published,
+        "year": int(published[:4]) if published else None,
+        "month": int(published[5:7]) if published else None,
+        "day": int(published[8:10]) if published else None,
+        "journal": "arXiv", "item_type": "preprint",
+        "url": "https://arxiv.org/abs/" + resolved,
+        "pdf_url": "https://arxiv.org/pdf/" + resolved,
+        "abstract": " ".join(entry.findtext("a:summary", "", ns).split()),
+        "published_doi": entry.findtext("x:doi", "", ns), "source": "arxiv",
+    }
+
+
+def resolve_by_arxiv(identifier: str) -> dict:
+    identifier = arxiv_id(identifier)
+    if not identifier:
+        raise ValueError("Invalid arXiv identifier")
+    result = subprocess.run(
+        ["curl", "-fsSL", "--connect-timeout", "10", "--max-time", "45",
+         "https://export.arxiv.org/api/query?id_list=" + quote(identifier, safe="")],
+        capture_output=True, text=True, check=False,
+    )
+    if result.returncode:
+        raise RuntimeError("arXiv metadata unavailable; retry later or provide a metadata manifest")
+    try:
+        return parse_arxiv_feed(result.stdout, identifier)
+    except ET.ParseError as exc:
+        raise ValueError('arXiv returned invalid metadata; retry or use a verified manifest') from exc
+
+
 def resolve_by_doi(doi: str) -> dict:
+    if arxiv_id(doi):
+        return resolve_by_arxiv(doi)
+    doi = re.sub(r"^https?://(?:dx\.)?doi\.org/", "", doi.strip(), flags=re.I)
     data = curl_json(f"https://api.crossref.org/works/{quote(doi, safe='')}")
     return parse_crossref_message(data["message"])
 
 
 def resolve_by_url(url: str) -> dict:
+    if arxiv_id(url):
+        return resolve_by_arxiv(url)
     doi = extract_doi_from_url(url)
     if not doi:
         raise ValueError(f"Could not extract DOI from URL: {url}")
@@ -117,6 +181,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Resolve paper metadata")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--doi")
+    group.add_argument("--arxiv")
     group.add_argument("--url")
     group.add_argument("--title")
     group.add_argument("--query")
@@ -124,7 +189,9 @@ def main() -> None:
     args = parser.parse_args()
 
     try:
-        if args.doi:
+        if args.arxiv:
+            output = resolve_by_arxiv(args.arxiv)
+        elif args.doi:
             output = resolve_by_doi(args.doi)
         elif args.url:
             output = resolve_by_url(args.url)

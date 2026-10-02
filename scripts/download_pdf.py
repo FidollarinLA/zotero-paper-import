@@ -10,11 +10,13 @@ import subprocess
 import sys
 from pathlib import Path
 from urllib.parse import quote
+import tempfile
+from resolve_paper import arxiv_id
 
 
 def curl_download(url: str, output: Path) -> int:
     result = subprocess.run(
-        ["curl", "-fsSL", "-o", str(output), "-w", "%{http_code}", url],
+        ["curl", "-fsSL", "--connect-timeout", "10", "--max-time", "90", "-o", str(output), "-w", "%{http_code}", url],
         capture_output=True,
         text=True,
         check=False,
@@ -25,81 +27,94 @@ def curl_download(url: str, output: Path) -> int:
 
 
 def is_pdf(path: Path) -> bool:
-    if not path.exists() or path.stat().st_size < 1024:
+    if not path.is_file():
         return False
-    result = subprocess.run(["file", "-b", str(path)], capture_output=True, text=True)
-    return "PDF document" in result.stdout
+    with path.open("rb") as stream:
+        return b"%PDF-" in stream.read(1024)
 
 
 def doi_to_nature_slug(doi: str) -> str | None:
     if not doi.startswith("10.1038/"):
         return None
-    return "s" + doi.split("/", 1)[1]
+    return doi.split("/", 1)[1]
 
 
-def unpaywall_pdf(doi: str, email: str) -> str | None:
-    url = f"https://api.unpaywall.org/v2/{quote(doi, safe='')}?email={quote(email)}"
-    result = subprocess.run(["curl", "-fsSL", url], capture_output=True, text=True)
-    if result.returncode != 0:
+def unpaywall_pdf(doi: str, email: str) -> tuple[str, str] | None:
+    if not email:
         return None
-    data = json.loads(result.stdout)
-    loc = data.get("best_oa_location") or {}
-    return loc.get("url_for_pdf") or loc.get("url")
-
-
-def arxiv_from_doi(doi: str) -> str | None:
-    if doi.startswith("10.48550/arXiv."):
-        arxiv_id = doi.split("arXiv.", 1)[1]
-        return f"https://arxiv.org/pdf/{arxiv_id}.pdf"
+    url = f"https://api.unpaywall.org/v2/{quote(doi, safe='')}?email={quote(email)}"
+    result = subprocess.run(["curl", "-fsSL", "--connect-timeout", "10", "--max-time", "45", url], capture_output=True, text=True)
+    if result.returncode:
+        return None
+    try:
+        data = json.loads(result.stdout)
+    except ValueError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    locations = data.get("oa_locations") or [data.get("best_oa_location") or {}]
+    # Prefer a verified version-of-record over accepted manuscripts and preprints.
+    locations = [loc for loc in locations if isinstance(loc, dict)]
+    locations.sort(key=lambda loc: loc.get("version") != "publishedVersion")
+    for loc in locations:
+        if loc.get("url_for_pdf"):
+            return loc["url_for_pdf"], loc.get("version", "unknown")
     return None
 
 
-def candidate_urls(doi: str, email: str) -> list[tuple[str, str]]:
-    urls: list[tuple[str, str]] = []
-    slug = doi_to_nature_slug(doi)
-    if slug:
-        urls.append(("nature_reference", f"https://www.nature.com/articles/{slug}_reference.pdf"))
-        urls.append(("nature_direct", f"https://www.nature.com/articles/{slug}.pdf"))
+def arxiv_from_doi(doi: str) -> str | None:
+    identifier = arxiv_id(doi)
+    return "https://arxiv.org/pdf/" + identifier if identifier else None
 
-    oa = unpaywall_pdf(doi, email)
-    if oa:
-        urls.append(("unpaywall", oa))
 
+def candidate_urls(doi: str, email: str) -> list[tuple[str, str, str]]:
     arxiv = arxiv_from_doi(doi)
     if arxiv:
-        urls.append(("arxiv", arxiv))
-
+        return [("arxiv", arxiv, "preprint")]
+    urls = []
+    slug = doi_to_nature_slug(doi)
+    if slug:
+        urls.extend([
+            ("nature_reference", f"https://www.nature.com/articles/{slug}_reference.pdf", "publishedVersion"),
+            ("nature_direct", f"https://www.nature.com/articles/{slug}.pdf", "publishedVersion"),
+        ])
+    oa = unpaywall_pdf(doi, email)
+    if oa:
+        urls.append(("unpaywall", oa[0], oa[1]))
     return urls
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Download paper PDF")
-    parser.add_argument("--doi", required=True)
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--doi")
+    group.add_argument("--arxiv")
     parser.add_argument("--output", required=True, help="Output PDF path")
     parser.add_argument("--preference", choices=["published", "any"], default="published")
-    parser.add_argument("--email", default="openaccess@example.com", help="Email for Unpaywall API")
+    parser.add_argument("--email", default="", help="Email for Unpaywall API")
     args = parser.parse_args()
 
     output = Path(args.output).expanduser().resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
 
-    published_sources = {"nature_reference", "nature_direct", "unpaywall"}
+    if args.arxiv and not arxiv_id(args.arxiv):
+        parser.error("Invalid arXiv identifier")
+    doi = re.sub(r"^https?://(?:dx\.)?doi\.org/", "", (args.arxiv or args.doi).strip(), flags=re.I)
     tried = []
 
-    for source, url in candidate_urls(args.doi, args.email):
-        if args.preference == "published" and source not in published_sources:
+    for source, url, version in candidate_urls(doi, args.email):
+        if args.preference == "published" and version != "publishedVersion":
             continue
 
-        tmp = output.with_suffix(".tmp")
-        if tmp.exists():
-            tmp.unlink()
+        with tempfile.NamedTemporaryFile(dir=output.parent, suffix=".pdf.tmp", delete=False) as handle:
+            tmp = Path(handle.name)
 
         code = curl_download(url, tmp)
         tried.append({"source": source, "url": url, "http_code": code, "is_pdf": is_pdf(tmp)})
 
         if is_pdf(tmp):
             tmp.replace(output)
-            print(json.dumps({"status": "ok", "source": source, "path": str(output), "tried": tried}, indent=2))
+            print(json.dumps({"status": "ok", "source": source, "version": version, "path": str(output), "tried": tried}, indent=2))
             return
 
         if tmp.exists():

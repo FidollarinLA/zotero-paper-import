@@ -1,21 +1,17 @@
 # Configuration Template
 
-Copy this file to `config.md` and fill in your values.  
-`config.md` is listed in `.gitignore` — do not commit personal paths.
+Copy to gitignored `config.md`. Agent guidance only; scripts use explicit CLI flags.
 
 ```yaml
-# Zotero paths
 zotero_db: ~/Zotero/zotero.sqlite
-zotero_storage: ~/Zotero/storage
-
-# Defaults
 download_dir: ~/Documents/Zotero_Imports
 default_collection: Imported
-pdf_preference: published   # published | any
-duplicate_policy: skip      # skip | replace | new_copy
-
-# Optional: contact email for Unpaywall API (required by their ToS)
-unpaywall_email: your-email@example.com
+pdf_preference: published  # published | any
+duplicate_policy: skip     # skip | new_copy
+unpaywall_email: ""        # optional real contact email, not a placeholder
+# Optional summary service; omitted means no LLM use.
+summary_provider: ""       # orcarouter | openai | custom
+summary_model: ""          # exact current catalog ID
 ```
 
-The agent reads `config.md` when present; otherwise it uses the defaults above.
+Keys belong in local environment variables only: `ORCAROUTER_API_KEY`, `OPENAI_API_KEY` or `LLM_API_KEY`. `--send` requires authorization to transmit selected text and incur potential costs. Never commit private paths, contact details or keys. Native Zotero import must copy PDF attachments and be verified afterwards.

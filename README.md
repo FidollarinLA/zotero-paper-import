@@ -2,120 +2,50 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-A [Cursor Agent Skill](https://cursor.com/docs/agent/skills) that finds academic papers, downloads PDFs, and imports them into your local Zotero library with a named collection.
-
-## What it does
-
-| Step | Action |
-|------|--------|
-| 1 | Resolve a paper from DOI, URL, title, or query |
-| 2 | Download the best available PDF (published version preferred) |
-| 3 | Handle paywalls by asking the user |
-| 4 | Import metadata + PDF into Zotero |
-| 5 | Organize into a user-specified collection |
-
-## Workflow
-
-![zotero-paper-import workflow (English)](assets/workflow-en-infographic-v2.png)
-
-<details>
-<summary>Step-by-step breakdown</summary>
-
-1. **Identify paper** - User provides DOI, URL, or title. If ambiguous, the agent asks for clarification.
-2. **Resolve metadata** - `resolve_paper.py` fetches data from CrossRef / Semantic Scholar.
-3. **Download PDF** - Published version first, then open access, then preprint (with user confirmation).
-4. **Paywall** - Ask the user: use your own account to download, or download yourself and provide the PDF path.
-5. **Prepare import** - Ask the user to **quit Zotero** (the agent writes to the local database; Zotero locks the file while running). Auto-backup `zotero.sqlite`.
-6. **Import to Zotero** - `import_to_zotero.py` creates or reuses a collection and attaches the PDF.
-7. **Done** - Ask the user to reopen Zotero. Report paths, DOI, and PDF version.
-
-</details>
+An agent skill for finding papers, downloading PDFs and preparing native Zotero imports. Supports DOI, arXiv (including explicit versions), URLs and title searches. Optional paper summaries support OrcaRouter, OpenAI and custom OpenAI-compatible HTTPS providers.
 
 ## Install
-
-### Personal skill (all projects)
 
 ```bash
 git clone https://github.com/FidollarinLA/zotero-paper-import.git ~/.cursor/skills/zotero-paper-import
 ```
 
-### Project skill (single repo)
+For other skill-enabled agents, place this repository in their supported skills directory. Requires Python 3.10+, curl and local Zotero. Copy `config.example.md` to gitignored `config.md` for agent preferences; scripts take explicit CLI arguments.
+
+## Import workflow
 
 ```bash
-mkdir -p .cursor/skills
-git clone https://github.com/FidollarinLA/zotero-paper-import.git .cursor/skills/zotero-paper-import
+python3 scripts/resolve_paper.py --arxiv 2602.03070v5
+python3 scripts/download_pdf.py --arxiv 2602.03070v5 --preference any --output ./paper.pdf
+python3 scripts/import_to_zotero.py --arxiv 2602.03070v5 --pdf ./paper.pdf --collection "My Papers" --output ./papers.ris --receipt ./preparation.json
 ```
 
-### Optional configuration
+Then in Zotero: **File → Import → A file**, select `papers.ris`, copy attachments and add the imported items to the intended collection. Check item count, metadata and opening PDFs. Zotero can remain open throughout. The script only prepares RIS, checks duplicates read only and reports per-paper status/hashes; it does not modify the database, import items or create collections.
+
+DOIs use Crossref; arXiv metadata uses the arXiv API. Network services may be unavailable; verified metadata can be supplied offline in a manifest ([examples](examples.md)). A preprint's journal DOI is kept separate. Unpaywall is optional and needs `--email` with your real contact email. Published-only mode rejects accepted manuscripts/preprints; ask for a legitimately obtained PDF when necessary.
+
+## Optional OrcaRouter integration
+
+Create an [OrcaRouter account/API key](https://docs.orcarouter.ai/quickstart). Select an exact model ID from its current catalog and put `ORCAROUTER_API_KEY` in your local environment. Never commit keys. The fixed endpoint is `https://api.orcarouter.ai/v1`.
 
 ```bash
-cp config.example.md config.md
-# Edit config.md with your paths and email
+python3 scripts/summarize_paper.py --provider orcarouter --model "<catalog-model-id>" --input ./abstract.txt --output ./summary.md
 ```
 
-`config.md` is gitignored and never committed.
+This previews locally without a key or request. Add `--send` only to transmit the selected text and accept potential usage fees. No automatic upload, retry or paid fallback. Other providers: `--provider openai` with `OPENAI_API_KEY`, or `--provider custom --base-url https://your-provider.example/v1` with `LLM_API_KEY`. Basic import works independently of these services. Summaries must be checked against the paper.
 
-## Usage
+Maintainers can apply to the [Built with OrcaRouter program](https://www.orcarouter.ai/zh-CN/built-with). Partner approval and the project's dedicated referral link are separate from API setup. No project referral link has been configured yet; this integration alone does not enable attributed revenue sharing.
 
-In Cursor chat:
+## Upgrade notes
 
-```
-Use zotero-paper-import to import DOI 10.1038/s41586-026-10644-y
-into Zotero collection "My Papers"
-```
+The original importer wrote SQLite directly. It now generates RIS; finish via Zotero's native importer. `replace` is no longer accepted; use native merge/edit for existing items. `skip` checks normalized identifiers across the batch and local libraries, excludes trashed items and treats arXiv versions as one paper; it cannot identify records without identifiers or automatically associate journal/preprint versions. `new_copy` permits an intentional duplicate. A missing database means batch-only checks; an unreadable existing database stops preparation. Review group-library matches before skipping a personal-library import. Collection paths are preparation hints and must be selected in Zotero. If a batch has no prepared records, `ris` is null and any existing output is left unchanged: do not import that stale file.
 
-Or run scripts directly:
+## Validation and scope
 
 ```bash
-python3 scripts/resolve_paper.py --doi 10.1038/s41586-026-10644-y
-python3 scripts/download_pdf.py --doi 10.1038/s41586-026-10644-y --output ./paper.pdf
-python3 scripts/import_to_zotero.py --doi 10.1038/s41586-026-10644-y --pdf ./paper.pdf --collection "My Papers"
+python3 -m unittest discover -s tests -v
 ```
 
-## Requirements
+CI runs on Python 3.10 and 3.13. Tests cover identifiers/versions, published PDF selection, native RIS, read-only duplicate handling, partial failure and optional provider requests. API tests are mocked; they do not prove live billing or partner attribution. Scope: articles/conference papers/preprints; books and theses are not covered. PDF signature validation rejects obvious HTML, not every corrupt PDF. Original workflow images under `assets/` describe the older release.
 
-- macOS or Linux
-- [Zotero](https://www.zotero.org/) installed locally
-- `curl` and `python3` (stdlib only)
-- Zotero must be **closed** during import
-
-## File structure
-
-```text
-zotero-paper-import/
-|-- SKILL.md                 # Agent instructions
-|-- README.md                # English documentation
-|-- README.zh-CN.md          # Chinese documentation
-|-- config.example.md        # User config template
-|-- examples.md              # Conversation examples
-|-- reference.md             # PDF sources, Zotero fields
-|-- LICENSE
-|-- assets/
-|   |-- workflow-en-infographic-v2.png
-|   |-- workflow-zh-infographic-v2.png
-|-- scripts/
-    |-- resolve_paper.py
-    |-- download_pdf.py
-    |-- import_to_zotero.py
-```
-
-## Scope
-
-**v1**: journal articles, conference papers, preprints.
-
-**Not yet**: books, book chapters, theses.
-
-## Safety
-
-- Backs up `zotero.sqlite` before every import
-- Verifies downloads are real PDFs (not HTML paywall pages)
-- Asks before using preprints when a published version was requested
-- Never embeds institution-specific proxy URLs
-
-## License
-
-MIT - see [LICENSE](LICENSE).
-
-## Contributing
-
-Pull requests welcome. Do not commit personal paths, emails, or institution-specific proxy URLs.
+[Agent instructions](SKILL.md) · [Examples](examples.md) · [References](reference.md) · [MIT license](LICENSE)

@@ -2,119 +2,52 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-一个 [Cursor Agent Skill](https://cursor.com/docs/agent/skills)，用于查找学术论文、下载 PDF，并导入到本地 Zotero 库的指定收藏夹中。
-
-## 功能概览
-
-| 步骤 | 操作 |
-|------|------|
-| 1 | 通过 DOI、URL、标题或关键词识别文献 |
-| 2 | 下载最佳可用 PDF（优先正式发表版） |
-| 3 | 遇到付费墙时询问用户 |
-| 4 | 将元数据与 PDF 导入 Zotero |
-| 5 | 放入用户指定的收藏夹 |
-
-## 使用流程
-
-![zotero-paper-import 使用流程（中文）](assets/workflow-zh-infographic-v2.png)
-
-<details>
-<summary>分步说明</summary>
-
-1. **识别文献** - 用户提供 DOI、URL 或标题。若无法唯一识别，Agent 会追问补充信息。
-2. **解析元数据** - 运行 `resolve_paper.py`，从 CrossRef / Semantic Scholar 获取数据。
-3. **下载 PDF** - 优先正式版，其次开放获取，最后预印本（需用户确认）。
-4. **遇到付费墙** - 追问用户二选一：使用您的账号登录下载，或自行下载后提供 PDF 路径。
-5. **导入前准备** - 请用户**先关闭 Zotero**（Agent 需写入本地数据库，Zotero 运行时会锁定文件）。同时自动备份 `zotero.sqlite`。
-6. **写入 Zotero** - 运行 `import_to_zotero.py`，创建或复用收藏夹，附加 PDF。
-7. **完成** - 请用户重新打开 Zotero，汇报路径、DOI 和 PDF 版本。
-
-</details>
+查找论文、下载 PDF，并生成 Zotero 原生导入文件的 Agent Skill。支持 DOI、arXiv 编号与指定版本、URL 和标题搜索；可选使用 OrcaRouter、OpenAI 或兼容接口生成论文摘要。
 
 ## 安装
-
-### 个人 Skill（所有项目可用）
 
 ```bash
 git clone https://github.com/FidollarinLA/zotero-paper-import.git ~/.cursor/skills/zotero-paper-import
 ```
 
-### 项目 Skill（仅当前仓库）
+其他支持 Skill 的 Agent 可放到对应技能目录。需要 Python 3.10+、curl 和本地 Zotero。可复制 `config.example.md` 为 `config.md`，供 Agent 读取偏好；脚本使用命令行参数，不自动解析配置文件。
+
+## 导入步骤
 
 ```bash
-mkdir -p .cursor/skills
-git clone https://github.com/FidollarinLA/zotero-paper-import.git .cursor/skills/zotero-paper-import
+python3 scripts/resolve_paper.py --arxiv 2602.03070v5
+python3 scripts/download_pdf.py --arxiv 2602.03070v5 --preference any --output ./paper.pdf
+python3 scripts/import_to_zotero.py --arxiv 2602.03070v5 --pdf ./paper.pdf --collection "我的论文" --output ./papers.ris --receipt ./preparation.json
 ```
 
-### 可选配置
+接着在 Zotero 选择 **文件 → 导入 → 文件**，打开 `papers.ris`，选择复制附件，再把条目加入目标分类。核对条目数、标题、作者、DOI 和 PDF 能否打开。整个过程 Zotero 可以保持运行。脚本只生成 RIS、只读查重和输出逐篇结果及 PDF 哈希，不直接修改数据库，也不自动创建分类。Agent 有可用的界面工具时可以操作原生导入，否则需用户完成这一步。
+
+DOI 元数据来自 Crossref，arXiv 来自其独立 API，保留指定版本并区分预印本与发表 DOI。网络不可用时可通过清单提供核验过的元数据，见 [示例](examples.md)。Unpaywall 需 `--email` 提供真实联系邮箱，未提供则跳过。只要正式版时不会自动换成预印本或接受稿；付费墙下可使用用户合法获得的 PDF。
+
+## 可选 OrcaRouter 摘要
+
+先[注册账号并创建 API Key](https://docs.orcarouter.ai/quickstart)，从当前模型列表选择准确的模型 ID，在本地环境变量设置 `ORCAROUTER_API_KEY`。接口为 `https://api.orcarouter.ai/v1`。不要把 Key 写入仓库或聊天。
 
 ```bash
-cp config.example.md config.md
-# 编辑 config.md，填写本地路径和邮箱
+python3 scripts/summarize_paper.py --provider orcarouter --model "<模型列表中的ID>" --input ./abstract.txt --output ./summary.md
 ```
 
-`config.md` 已加入 `.gitignore`，不会被提交。
+默认只在本地预览，不需要 Key，不发送请求。用户同意将这段文本发给所选平台并接受可能的费用后，添加 `--send` 执行。不会自动上传 PDF、重试或切换收费模型。也可选 `openai`（环境变量 `OPENAI_API_KEY`），或 `custom --base-url https://your-provider.example/v1`（`LLM_API_KEY`）。基础导入不需要 LLM 账号。AI 摘要需对照原文核验。
 
-## 使用方法
+作者可申请 [Built with OrcaRouter](https://www.orcarouter.ai/zh-CN/built-with)。合作申请审核和项目专属推荐链接，与 API 接入是两件事。目前仓库尚未配置项目推荐链接；仅调用 API 不代表已开启消费归因或分成。
 
-在 Cursor 对话中说：
+## 升级须知
 
-```
-用 zotero-paper-import，把 DOI 10.1038/s41586-026-10644-y 导入 Zotero，收藏夹叫 "My Papers"
-```
+旧版直接写数据库的方式已改为准备 RIS，必须完成 Zotero 原生导入。移除 `replace`，更新或合并现有条目使用 Zotero 自带操作。默认 `skip` 按 DOI/arXiv 归一化查重，忽略回收站条目，同一 arXiv 不同版本算一篇；不会覆盖已有 PDF，也无法识别缺少编号的重复记录或自动合并正式版/预印本。`new_copy` 用于明确需要另一份副本的情况。
 
-或直接运行脚本：
+查重覆盖本地各文献库，遇到群组库匹配需核对是否还应导入个人库；数据库不存在时只检查批内重复，已有数据库不可读则停止。`--collection` 只记录目标，原生导入后需选择实际分类。如果本批没有可准备的记录，结果 `ris` 为 null，旧输出保留但不应再次导入。
+
+## 验证
 
 ```bash
-python3 scripts/resolve_paper.py --doi 10.1038/s41586-026-10644-y
-python3 scripts/download_pdf.py --doi 10.1038/s41586-026-10644-y --output ./paper.pdf
-python3 scripts/import_to_zotero.py --doi 10.1038/s41586-026-10644-y --pdf ./paper.pdf --collection "My Papers"
+python3 -m unittest discover -s tests -v
 ```
 
-## 环境要求
+GitHub CI 使用 Python 3.10 和 3.13。覆盖版本解析、PDF 版本选择、原生 RIS、只读查重、部分失败和可选 API 请求；接口测试使用模拟响应，不代表已验证真实计费或分成。范围为期刊、会议论文和预印本，不包括书籍与学位论文。PDF 签名检查只排除明显 HTML，仍需打开核验。`assets/` 原流程图展示旧版，当前以本说明为准。
 
-- macOS 或 Linux
-- 本地安装 [Zotero](https://www.zotero.org/)
-- `curl` 和 `python3`（仅标准库，无需 pip 安装）
-- 导入时 Zotero 必须**已关闭**
-
-## 目录结构
-
-```text
-zotero-paper-import/
-|-- SKILL.md                 # Agent 主指令
-|-- README.md                # 英文文档
-|-- README.zh-CN.md          # 中文文档
-|-- config.example.md        # 配置模板
-|-- examples.md              # 对话示例
-|-- reference.md             # PDF 来源与 Zotero 字段
-|-- LICENSE
-|-- assets/
-|   |-- workflow-en-infographic-v2.png
-|   |-- workflow-zh-infographic-v2.png
-|-- scripts/
-    |-- resolve_paper.py
-    |-- download_pdf.py
-    |-- import_to_zotero.py
-```
-
-## 支持范围
-
-**v1 支持**：期刊论文、会议论文、预印本。
-
-**暂不支持**：书籍、书籍章节、学位论文。
-
-## 安全机制
-
-- 每次导入前自动备份 `zotero.sqlite`
-- 校验下载文件为真实 PDF（而非 HTML 付费墙页面）
-- 用户要求正式版时，不会静默降级为预印本
-- 不嵌入任何机构专属代理 URL
-
-## 许可证
-
-MIT - 见 [LICENSE](LICENSE)。
-
-## 贡献
-
-欢迎 Pull Request。请勿提交个人路径、邮箱或机构代理配置。
+[Skill 使用指引](SKILL.md) · [示例](examples.md) · [参考](reference.md) · [MIT 协议](LICENSE)
