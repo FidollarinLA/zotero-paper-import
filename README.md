@@ -1,51 +1,133 @@
 # zotero-paper-import
 
-[English](README.md) | [简体中文](README.zh-CN.md)
+[English](README.md) · [简体中文](README.zh-CN.md)
 
-An agent skill for finding papers, downloading PDFs and preparing native Zotero imports. Supports DOI, arXiv (including explicit versions), URLs and title searches. Optional paper summaries support OrcaRouter, OpenAI and custom OpenAI-compatible HTTPS providers.
+![Paper search, a checked PDF and a Zotero library](assets/research-banner.en.png)
 
-## Install
+Give your agent a DOI, an arXiv link or a paper title. This skill helps it find the paper, check the PDF and prepare a file you can import into Zotero. It runs locally on Windows, macOS and Linux.
 
-```bash
-git clone https://github.com/FidollarinLA/zotero-paper-import.git ~/.cursor/skills/zotero-paper-import
+The final step uses Zotero's own importer. An agent with desktop controls can help, or you can do it yourself. Check the library items and attachments before calling the import complete.
+
+![Four steps from finding a paper to importing in Zotero, with optional summaries](assets/workflow-guide.en.png)
+
+```text
+DOI / arXiv / title
+        |
+        v
+Confirm paper and version --> Get PDF --> Check metadata and duplicates
+                                                    |
+                                                    v
+                                              papers.ris
+                                                    |
+                                                    v
+                                   Zotero: File > Import > A file
+                                                    |
+                                                    v
+                                   Copy attachments and check the library
 ```
 
-For other skill-enabled agents, place this repository in their supported skills directory. Requires Python 3.10+, curl and local Zotero. Copy `config.example.md` to gitignored `config.md` for agent preferences; scripts take explicit CLI arguments.
+## Start on Windows
 
-## Import workflow
+You need [Python 3.10 or newer](https://www.python.org/downloads/windows/), [Zotero](https://www.zotero.org/download/) and an agent that supports local skills. The network helpers use `curl.exe`, included in current Windows 10 and Windows 11 installations. Basic import needs no model API key.
 
-```bash
-python3 scripts/resolve_paper.py --arxiv 2602.03070v5
-python3 scripts/download_pdf.py --arxiv 2602.03070v5 --preference any --output ./paper.pdf
-python3 scripts/import_to_zotero.py --arxiv 2602.03070v5 --pdf ./paper.pdf --collection "My Papers" --output ./papers.ris --receipt ./preparation.json
+1. [Download the repository ZIP](https://github.com/FidollarinLA/zotero-paper-import/archive/refs/heads/main.zip) and extract it.
+2. Open PowerShell in the extracted `zotero-paper-import-main` folder.
+3. Install for the agent you use:
+
+```powershell
+py -3 --version
+py -3 .\scripts\install_skill.py --agent cursor
 ```
 
-Then in Zotero: **File → Import → A file**, select `papers.ris`, copy attachments and add the imported items to the intended collection. Check item count, metadata and opening PDFs. Zotero can remain open throughout. The script only prepares RIS, checks duplicates read only and reports per-paper status/hashes; it does not modify the database, import items or create collections.
+Replace `cursor` with `codex` or `claude` for those agents. The installer copies the full skill into the supported user directory, without Git. To refresh an existing copy, add `--update`; your local `config.md` stays in place.
 
-DOIs use Crossref; arXiv metadata uses the arXiv API. Network services may be unavailable; verified metadata can be supplied offline in a manifest ([examples](examples.md)). A preprint's journal DOI is kept separate. Unpaywall is optional and needs `--email` with your real contact email. Published-only mode rejects accepted manuscripts/preprints; ask for a legitimately obtained PDF when necessary.
+Reload skills or start a new chat. Try:
 
-## Optional OrcaRouter integration
+> Use zotero-paper-import to import https://arxiv.org/abs/1706.03762 into my Zotero collection "To read". Use the preprint PDF, skip duplicates, and tell me what remains to be done.
 
-Create an [OrcaRouter account/API key](https://docs.orcarouter.ai/quickstart). Select an exact model ID from its current catalog and put `ORCAROUTER_API_KEY` in your local environment. Never commit keys. The fixed endpoint is `https://api.orcarouter.ai/v1`.
+Codex supports `$zotero-paper-import`; Cursor also supports `/zotero-paper-import`. Run the helpers on the computer that has your PDFs and Zotero data. A remote agent needs access to those files first.
 
-```bash
-python3 scripts/summarize_paper.py --provider orcarouter --model "<catalog-model-id>" --input ./abstract.txt --output ./summary.md
+## Check your setup
+
+Run from the repository or installed skill folder:
+
+```powershell
+py -3 .\scripts\doctor.py
 ```
 
-This previews locally without a key or request. Add `--send` only to transmit the selected text and accept potential usage fees. No automatic upload, retry or paid fallback. Other providers: `--provider openai` with `OPENAI_API_KEY`, or `--provider custom --base-url https://your-provider.example/v1` with `LLM_API_KEY`. Basic import works independently of these services. Summaries must be checked against the paper.
+This checks Python, curl, the default Zotero database and the shipped OrcaRouter configuration. It reports whether a key is set, without displaying it. The default database is `~/Zotero/zotero.sqlite`. For a custom data directory:
 
-Maintainers can apply to the [Built with OrcaRouter program](https://www.orcarouter.ai/zh-CN/built-with). Partner approval and the project's dedicated referral link are separate from API setup. No project referral link has been configured yet; this integration alone does not enable attributed revenue sharing.
-
-## Upgrade notes
-
-The original importer wrote SQLite directly. It now generates RIS; finish via Zotero's native importer. `replace` is no longer accepted; use native merge/edit for existing items. `skip` checks normalized identifiers across the batch and local libraries, excludes trashed items and treats arXiv versions as one paper; it cannot identify records without identifiers or automatically associate journal/preprint versions. `new_copy` permits an intentional duplicate. A missing database means batch-only checks; an unreadable existing database stops preparation. Review group-library matches before skipping a personal-library import. Collection paths are preparation hints and must be selected in Zotero. If a batch has no prepared records, `ris` is null and any existing output is left unchanged: do not import that stale file.
-
-## Validation and scope
-
-```bash
-python3 -m unittest discover -s tests -v
+```powershell
+py -3 .\scripts\doctor.py --zotero-db "D:\Research\Zotero\zotero.sqlite"
 ```
 
-CI runs on Python 3.10 and 3.13. Tests cover identifiers/versions, published PDF selection, native RIS, read-only duplicate handling, partial failure and optional provider requests. API tests are mocked; they do not prove live billing or partner attribution. Scope: articles/conference papers/preprints; books and theses are not covered. PDF signature validation rejects obvious HTML, not every corrupt PDF. Original workflow images under `assets/` describe the older release.
+A missing database allows preparation with batch-only duplicate checks. An existing unreadable database needs attention before you continue. Save collection and download preferences in a local `config.md` using [the template](config.example.md).
 
-[Agent instructions](SKILL.md) · [Examples](examples.md) · [References](reference.md) · [MIT license](LICENSE)
+## Run the import steps
+
+The example uses *Attention Is All You Need*. Check the returned metadata before continuing:
+
+```powershell
+py -3 .\scripts\resolve_paper.py --arxiv 1706.03762
+py -3 .\scripts\download_pdf.py --arxiv 1706.03762 --preference any --output .\paper.pdf
+py -3 .\scripts\import_to_zotero.py --arxiv 1706.03762 --pdf .\paper.pdf --collection "To read" --output .\papers.ris --receipt .\preparation.json
+```
+
+In Zotero, choose **File → Import → A file**, open `papers.ris`, and copy attachments. Put the items in your intended collection and check the metadata and opening PDFs. Keep the source PDFs available until Zotero has copied them.
+
+The receipt lists prepared, skipped and failed papers with attachment hashes. `--collection` records your intended destination; select the actual collection in Zotero. If the receipt has `"ris": null`, do not import an older file at the same path.
+
+On macOS/Linux, use `python3 scripts/...` instead of `py -3 .\scripts\...`. With Git, you can clone directly into `~/.cursor/skills/zotero-paper-import`, Codex's `~/.agents/skills/zotero-paper-import`, or `~/.claude/skills/zotero-paper-import`. [Examples](examples.md) cover DOI lookup and batches.
+
+## Optional OrcaRouter summaries
+
+The summary script reads [providers.json](integrations/providers.json), which includes OrcaRouter. OpenAI and custom OpenAI-compatible HTTPS endpoints are also supported.
+
+[Register through the project's referral link](https://www.orcarouter.ai/ref/ref_e92ed6bbb348dc9b078b) if you need an OrcaRouter account, then create your own key. This is the maintainer's referral link: new signups can be attributed to the project under the partner rules. Public directory publication is a separate OrcaRouter review step.
+
+Set a key for this PowerShell session:
+
+```powershell
+$orcaKey = Read-Host "OrcaRouter API key" -AsSecureString
+$env:ORCA_KEY = [System.Net.NetworkCredential]::new("", $orcaKey).Password
+Remove-Variable orcaKey
+py -3 .\scripts\doctor.py --check-provider
+```
+
+`ORCAROUTER_API_KEY` is also supported. Set one variable, or use the same value for both. The optional check reads `/models`; it sends no paper text and makes no inference request. It does not verify billing or referral earnings.
+
+To test one actual model response, use the following explicit check. It sends a fixed public test string with a 64-token output cap and may incur fees. It sends no paper text. Add `--model MODEL_ID` to choose a model; otherwise it uses `orcarouter/auto`.
+
+```powershell
+py -3 .\scripts\doctor.py --check-inference
+```
+
+`inference_tested: true` confirms a non-empty model response. Directory publication and referral earnings still need separate confirmation in OrcaRouter.
+
+Save the selected abstract or excerpt as UTF-8 `abstract.txt`, then preview:
+
+```powershell
+py -3 .\scripts\summarize_paper.py --provider orcarouter --input .\abstract.txt --output .\summary.md
+```
+
+Preview makes no network request and needs no key. The default `orcarouter/auto` model may incur fees. Choose a current model with `--model`, or keep that default. Add `--send` when you want to transmit the selected text and accept usage fees. The script writes a separate summary; it does not upload the PDF or import the summary into Zotero. Check its claims against the paper.
+
+To use OrcaRouter as a Codex CLI model provider too, merge the provider and profile tables from the [optional TOML example](integrations/orcarouter.codex.toml) into your existing configuration. Set `ORCA_KEY`, then choose `codex --profile orcarouter`. Skill installation leaves the host agent's model settings alone.
+
+## What to expect
+
+- Crossref supplies DOI metadata; arXiv supplies versioned preprint metadata. Searches return candidates to confirm. You can provide verified metadata offline in a manifest when a service is unavailable.
+- Published-only downloads keep that version requirement. Unpaywall needs your real email via `--email`. For restricted access, supply a PDF obtained through your own access.
+- Duplicate checks normalize DOI links and arXiv versions and ignore trashed records. They cover local libraries, so review group-library matches. Identifier-free duplicates and journal/preprint equivalence need manual review. `new_copy` permits an intentional extra copy.
+- Zotero may stay open. Helpers read its database and prepare RIS; Zotero performs library changes. The old database-writing importer and `replace` mode have been retired.
+- The PDF signature check catches obvious HTML, not every incomplete PDF. Open the file to verify it. Scope: journal articles, conference papers and preprints.
+
+## Development
+
+```powershell
+py -3 -m unittest discover -s tests -v
+```
+
+CI covers Windows and Linux with Python 3.10 and 3.13. Tests include Unicode paths, file-handle closure, UTF-8/BOM inputs, ZIP installation, RIS preparation and provider requests. Provider responses are simulated; live inference and attribution need an actual account.
+
+[Skill instructions](SKILL.md) · [Examples](examples.md) · [References](reference.md) · [MIT license](LICENSE)

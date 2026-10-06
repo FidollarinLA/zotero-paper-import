@@ -1,0 +1,16 @@
+{
+  "orcarouter": {
+    "name": "OrcaRouter",
+    "base_url": "https://api.orcarouter.ai/v1",
+    "api_key_env": "ORCAROUTER_API_KEY",
+    "api_key_env_aliases": ["ORCA_KEY"],
+    "default_model": "orcarouter/auto",
+    "referral_url": "https://www.orcarouter.ai/ref/ref_e92ed6bbb348dc9b078b"
+  },
+  "openai": {
+    "name": "OpenAI",
+    "base_url": "https://api.openai.com/v1",
+    "api_key_env": "OPENAI_API_KEY",
+    "api_key_env_aliases": []
+  }
+}

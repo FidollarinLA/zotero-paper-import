@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch, MagicMock
+from contextlib import closing
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 import resolve_paper as resolve
@@ -56,7 +57,7 @@ class WorkflowTests(unittest.TestCase):
     def test_native_preparation_preserves_metadata_and_attachment(self):
         report = native.prepare([{'metadata': self.meta, 'pdf': str(self.pdf)}], self.root/'papers.ris', 'Parent/Child')
         self.assertEqual(report['results'][0]['status'], 'prepared')
-        text = (self.root/'papers.ris').read_text()
+        text = (self.root/'papers.ris').read_text(encoding='utf-8')
         self.assertIn('TY  - RPRT', text)
         self.assertIn('AU  - Doe, Jane', text)
         self.assertIn('N1  - arXiv: 2602.03070v5', text)
@@ -86,7 +87,7 @@ class WorkflowTests(unittest.TestCase):
 
     def test_library_readonly_duplicate_normalization_and_deleted_items(self):
         db = self.root/'zotero.sqlite'
-        with sqlite3.connect(db) as conn:
+        with closing(sqlite3.connect(db)) as conn:
             conn.executescript('''CREATE TABLE items(itemID INTEGER); CREATE TABLE deletedItems(itemID INTEGER);
                 CREATE TABLE fields(fieldID INTEGER, fieldName TEXT);
                 CREATE TABLE itemData(itemID INTEGER, fieldID INTEGER, valueID INTEGER);
@@ -95,6 +96,7 @@ class WorkflowTests(unittest.TestCase):
                 INSERT INTO fields VALUES(1,'DOI');
                 INSERT INTO itemData VALUES(1,1,1),(2,1,2);
                 INSERT INTO itemDataValues VALUES(1,'https://doi.org/10.48550/arXiv.2602.03070v1'),(2,'10.1/deleted');''')
+            conn.commit()
         before = db.read_bytes()
         ids = native.library_identifiers(db)
         self.assertIn('arxiv:2602.03070', ids)
@@ -120,7 +122,7 @@ class WorkflowTests(unittest.TestCase):
     def test_optional_llm_does_not_send_without_flag(self):
         text = self.root/'abstract.txt'
         text.write_text('An abstract.')
-        process = subprocess.run([sys.executable, str(Path(summary.__file__)), '--provider','orcarouter','--model','orcarouter/free','--input',str(text),'--output',str(self.root/'summary.md')],capture_output=True,text=True,env={**os.environ,'ORCAROUTER_API_KEY':''})
+        process = subprocess.run([sys.executable, str(Path(summary.__file__)), '--provider','orcarouter','--model','orcarouter/free','--input',str(text),'--output',str(self.root/'summary.md')],capture_output=True,text=True,encoding='utf-8',env={**os.environ,'ORCAROUTER_API_KEY':'','ORCA_KEY':''})
         self.assertEqual(process.returncode, 0, process.stderr)
         self.assertEqual(json.loads(process.stdout)['status'], 'preview')
         self.assertFalse((self.root/'summary.md').exists())

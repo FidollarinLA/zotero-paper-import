@@ -12,6 +12,7 @@ from pathlib import Path
 from urllib.parse import quote
 import tempfile
 from resolve_paper import arxiv_id
+from runtime import configure_stdio
 
 
 def curl_download(url: str, output: Path) -> int:
@@ -19,6 +20,7 @@ def curl_download(url: str, output: Path) -> int:
         ["curl", "-fsSL", "--connect-timeout", "10", "--max-time", "90", "-o", str(output), "-w", "%{http_code}", url],
         capture_output=True,
         text=True,
+        encoding='utf-8', errors='replace',
         check=False,
     )
     if result.returncode != 0:
@@ -43,7 +45,7 @@ def unpaywall_pdf(doi: str, email: str) -> tuple[str, str] | None:
     if not email:
         return None
     url = f"https://api.unpaywall.org/v2/{quote(doi, safe='')}?email={quote(email)}"
-    result = subprocess.run(["curl", "-fsSL", "--connect-timeout", "10", "--max-time", "45", url], capture_output=True, text=True)
+    result = subprocess.run(["curl", "-fsSL", "--connect-timeout", "10", "--max-time", "45", url], capture_output=True, text=True, encoding='utf-8', errors='replace')
     if result.returncode:
         return None
     try:
@@ -85,6 +87,7 @@ def candidate_urls(doi: str, email: str) -> list[tuple[str, str, str]]:
 
 
 def main() -> None:
+    configure_stdio()
     parser = argparse.ArgumentParser(description="Download paper PDF")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--doi")
@@ -109,16 +112,16 @@ def main() -> None:
         with tempfile.NamedTemporaryFile(dir=output.parent, suffix=".pdf.tmp", delete=False) as handle:
             tmp = Path(handle.name)
 
-        code = curl_download(url, tmp)
-        tried.append({"source": source, "url": url, "http_code": code, "is_pdf": is_pdf(tmp)})
-
-        if is_pdf(tmp):
-            tmp.replace(output)
-            print(json.dumps({"status": "ok", "source": source, "version": version, "path": str(output), "tried": tried}, indent=2))
-            return
-
-        if tmp.exists():
-            tmp.unlink()
+        try:
+            code = curl_download(url, tmp)
+            valid = is_pdf(tmp)
+            tried.append({"source": source, "url": url, "http_code": code, "is_pdf": valid})
+            if 200 <= code < 300 and valid:
+                tmp.replace(output)
+                print(json.dumps({"status": "ok", "source": source, "version": version, "path": str(output), "tried": tried}, indent=2))
+                return
+        finally:
+            tmp.unlink(missing_ok=True)
 
     print(
         json.dumps(

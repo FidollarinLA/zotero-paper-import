@@ -8,12 +8,16 @@ import json
 import re
 import sqlite3
 import sys
+from contextlib import closing
 from pathlib import Path
+from runtime import configure_stdio
 
 from resolve_paper import arxiv_id, resolve_by_arxiv, resolve_by_doi, resolve_by_url
 
 
 def normalize_identifier(value: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError('Paper identifiers must be strings')
     identifier = arxiv_id(value)
     if identifier:
         return 'arxiv:' + re.sub(r'v\d+$', '', identifier).lower()
@@ -22,7 +26,9 @@ def normalize_identifier(value: str) -> str:
 
 def library_identifiers(db: Path) -> set[str]:
     """Use SQLite's read-only mode, including committed WAL data when present."""
-    with sqlite3.connect(db.resolve().as_uri() + '?mode=ro', uri=True, timeout=5) as conn:
+    # sqlite3's context manager commits/rolls back but does not close the handle.
+    # Explicit closure matters on Windows, where an open handle locks the file.
+    with closing(sqlite3.connect(db.resolve().as_uri() + '?mode=ro', uri=True, timeout=5)) as conn:
         rows = conn.execute('''SELECT v.value FROM itemData d
             JOIN itemDataValues v ON d.valueID=v.valueID
             JOIN fields f ON d.fieldID=f.fieldID
@@ -60,7 +66,10 @@ def to_ris(meta: dict, pdf: Path) -> str:
     for tag, value in fields:
         if value:
             lines.append(f'{tag}  - {clean(value)}')
-    for author in meta.get('authors', []):
+    authors = meta.get('authors') or []
+    if not isinstance(authors, list) or any(not isinstance(author, dict) for author in authors):
+        raise ValueError('authors must be an array of objects')
+    for author in authors:
         name = ', '.join(filter(None, [clean(author.get('family')), clean(author.get('given'))]))
         if name:
             lines.append('AU  - ' + name)
@@ -75,7 +84,8 @@ def to_ris(meta: dict, pdf: Path) -> str:
 
 
 def prepare(entries: list[dict], output: Path, collection: str,
-            existing: set[str] | None = None, duplicate_policy: str = 'skip') -> dict:
+            existing: set[str] | None = None, duplicate_policy: str = 'skip',
+            base_dir: Path | None = None) -> dict:
     if not isinstance(entries, list) or not entries:
         raise ValueError('Manifest must be a non-empty array')
     existing = set(existing or ())
@@ -95,7 +105,10 @@ def prepare(entries: list[dict], output: Path, collection: str,
             if duplicate_policy == 'skip' and identity in existing | seen:
                 results.append({'index': index, 'identifier': identifier, 'status': 'skipped', 'reason': 'duplicate'})
                 continue
-            pdf = Path(entry['pdf']).expanduser().resolve()
+            pdf = Path(entry['pdf']).expanduser()
+            if base_dir is not None and not pdf.is_absolute():
+                pdf = base_dir / pdf
+            pdf = pdf.resolve()
             if '\n' in str(pdf) or '\r' in str(pdf):
                 raise ValueError('Attachment filename cannot contain a newline')
             validate_pdf(pdf)
@@ -118,7 +131,7 @@ def prepare(entries: list[dict], output: Path, collection: str,
             seen.update([identity, resolved])
             results.append({'index': index, 'identifier': identifier, 'status': 'prepared',
                             'title': meta['title'], 'pdf': str(pdf),
-                            'sha256': hashlib.sha256(pdf.read_bytes()).hexdigest()})
+                            'sha256': pdf_hash(pdf)})
         except (ValueError, KeyError, TypeError, OSError, RuntimeError) as exc:
             results.append({'index': index, 'status': 'failed', 'reason': str(exc)})
     if records:
@@ -131,7 +144,16 @@ def prepare(entries: list[dict], output: Path, collection: str,
             'next_step': 'In Zotero: File > Import > A file. Select this RIS, copy attachments, then add the imported items to the target collection. Verify item count and PDFs before reporting success.'}
 
 
+def pdf_hash(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open('rb') as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b''):
+            digest.update(block)
+    return digest.hexdigest()
+
+
 def main() -> None:
+    configure_stdio()
     parser = argparse.ArgumentParser(description=__doc__)
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--doi')
@@ -148,13 +170,17 @@ def main() -> None:
     if not args.manifest and not ((args.doi or args.arxiv or args.url) and args.pdf):
         parser.error('Provide an identifier and --pdf, or --manifest')
     try:
-        entries = json.loads(args.manifest.read_text(encoding='utf-8')) if args.manifest else [
+        if args.manifest:
+            args.manifest = args.manifest.expanduser().resolve()
+        entries = json.loads(args.manifest.read_text(encoding='utf-8-sig')) if args.manifest else [
             {'doi': args.doi, 'arxiv': args.arxiv, 'url': args.url, 'pdf': args.pdf}]
         # Refuse to silently bypass a duplicate check if an existing DB cannot be read.
         existing = library_identifiers(args.zotero_db.expanduser()) if args.zotero_db.expanduser().exists() else set()
-        report = prepare(entries, args.output.expanduser().resolve(), args.collection, existing, args.duplicate_policy)
+        report = prepare(entries, args.output.expanduser().resolve(), args.collection, existing,
+                         args.duplicate_policy, args.manifest.parent if args.manifest else None)
         report['library_checked'] = args.zotero_db.expanduser().exists()
         if args.receipt:
+            args.receipt = args.receipt.expanduser()
             args.receipt.parent.mkdir(parents=True, exist_ok=True)
             args.receipt.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
         print(json.dumps(report, ensure_ascii=False, indent=2))

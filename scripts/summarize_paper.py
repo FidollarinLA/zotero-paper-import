@@ -9,11 +9,11 @@ import sys
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+from providers import PROVIDER_CONFIG, provider_key
+from runtime import configure_stdio
 
-PROVIDERS = {
-    'orcarouter': ('https://api.orcarouter.ai/v1', 'ORCAROUTER_API_KEY'),
-    'openai': ('https://api.openai.com/v1', 'OPENAI_API_KEY'),
-}
+PROVIDERS = {name: (config['base_url'], config['api_key_env'])
+             for name, config in PROVIDER_CONFIG.items()}
 
 
 def request_summary(text: str, model: str, base_url: str, key: str,
@@ -34,11 +34,12 @@ def request_summary(text: str, model: str, base_url: str, key: str,
 
 
 def main() -> None:
+    configure_stdio()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--provider', required=True, choices=[*PROVIDERS, 'custom'])
     parser.add_argument('--input', required=True, type=Path, help='User-selected UTF-8 abstract or extracted paper text; no automatic PDF upload')
     parser.add_argument('--output', required=True, type=Path)
-    parser.add_argument('--model', required=True, help='Exact model ID from the provider catalog')
+    parser.add_argument('--model', help='Exact model ID; OrcaRouter defaults to orcarouter/auto (may incur fees)')
     parser.add_argument('--base-url', help='Required for custom provider')
     parser.add_argument('--max-tokens', type=int, default=1200)
     parser.add_argument('--max-input-chars', type=int, default=24000)
@@ -52,21 +53,25 @@ def main() -> None:
             raise ValueError('Provider URL must use HTTPS')
         if args.provider != 'custom' and args.base_url:
             raise ValueError('--base-url is only supported with --provider custom')
-        text = args.input.read_text(encoding='utf-8')
+        model = args.model or PROVIDER_CONFIG.get(args.provider, {}).get('default_model')
+        if not model:
+            raise ValueError('--model is required for this provider')
+        text = args.input.expanduser().read_text(encoding='utf-8-sig')
         if not text.strip():
             raise ValueError('Input is empty')
         if len(text) > args.max_input_chars:
             raise ValueError('Input exceeds limit; choose an excerpt or explicitly raise --max-input-chars')
         if not args.send:
             print(json.dumps({'status': 'preview', 'provider': args.provider, 'endpoint': base,
-                              'model': args.model, 'input_characters': len(text),
+                              'model': model, 'input_characters': len(text),
                               'max_output_tokens': args.max_tokens,
                               'next_step': 'Use --send to transmit this text. The provider may charge for usage.'}))
             return
-        key = os.environ.get(key_env, '')
+        key = provider_key(args.provider) if args.provider != 'custom' else os.environ.get(key_env, '').strip()
         if not key:
             raise ValueError(f'Set {key_env} in your local environment')
-        result = request_summary(text, args.model, base, key, args.max_tokens)
+        result = request_summary(text, model, base, key, args.max_tokens)
+        args.output = args.output.expanduser()
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text('# AI-assisted paper summary\n\n' + result['summary'] +
                                f'\n\nProvider: {args.provider}; model: {result["model"]}. Verify against the paper.\n', encoding='utf-8')

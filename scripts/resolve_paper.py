@@ -11,6 +11,7 @@ import sys
 import xml.etree.ElementTree as ET
 from urllib.parse import unquote
 from urllib.parse import quote
+from runtime import configure_stdio
 
 
 def curl_json(url: str) -> dict:
@@ -18,6 +19,7 @@ def curl_json(url: str) -> dict:
         ["curl", "-fsSL", "--connect-timeout", "10", "--max-time", "45", url],
         capture_output=True,
         text=True,
+        encoding='utf-8', errors='replace',
         check=False,
     )
     if result.returncode != 0:
@@ -110,7 +112,7 @@ def resolve_by_arxiv(identifier: str) -> dict:
     result = subprocess.run(
         ["curl", "-fsSL", "--connect-timeout", "10", "--max-time", "45",
          "https://export.arxiv.org/api/query?id_list=" + quote(identifier, safe="")],
-        capture_output=True, text=True, check=False,
+        capture_output=True, text=True, encoding='utf-8', errors='replace', check=False,
     )
     if result.returncode:
         raise RuntimeError("arXiv metadata unavailable; retry later or provide a metadata manifest")
@@ -178,6 +180,7 @@ def resolve_by_query(query: str) -> list[dict]:
 
 
 def main() -> None:
+    configure_stdio()
     parser = argparse.ArgumentParser(description="Resolve paper metadata")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--doi")

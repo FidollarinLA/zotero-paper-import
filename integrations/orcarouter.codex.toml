@@ -1,0 +1,13 @@
+# Optional Codex CLI provider example. Merge the provider and profile into your
+# own config; do not overwrite an existing config or switch providers globally.
+# Signup: https://www.orcarouter.ai/ref/ref_e92ed6bbb348dc9b078b
+
+[model_providers.orcarouter]
+name = "OrcaRouter"
+base_url = "https://api.orcarouter.ai/v1"
+wire_api = "responses"
+env_key = "ORCA_KEY"
+
+[profiles.orcarouter]
+model = "orcarouter/auto"
+model_provider = "orcarouter"
